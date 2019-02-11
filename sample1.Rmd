@@ -1,0 +1,163 @@
+---
+title: "Dealing with sample of meetup data& Visualization"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Message=FALSE}
+library(jsonlite)
+library(stringr)
+library(dplyr)
+
+```
+
+## R Markdown
+```{r eval=FALSE}
+
+#read whole data
+events<-read.csv("D:\\meetups\\events.csv")
+nyc_events<-filter(events,venue_city=="New York")
+sf_events<-filter(events,venue_city=="San Francisco")
+chi_events<-filter(events,venue_city=="Chicago")
+
+#split up and output data
+write.csv(nyc_events,"D:\\meetups\\nycevents.csv")
+write.csv(sf_events,"D:\\meetups\\sfevents.csv")
+write.csv(chi_events,"D:\\meetups\\chievents.csv")
+
+#read json file
+venues<-stream_in(file("D:\\meetup\\venues.json"))
+#flatten the structure
+venues<-flatten(venues)
+#output as csv
+venues<-as.data.frame(venues)
+write.csv(venues,"D:\\meetup\\tvenues.csv")
+
+
+groups<-stream_in(file("/Volumes/Seagate Backup Plus Drive/meetup/groups.json"),pagesize=10000)
+groups<-as.data.frame(flatten(groups))
+groups<-select(groups,-group_photo.highres_link)
+groups<-select(groups,-group_photo.photo_id,-group_photo.base_url,-group_photo.photo_link,-group_photo.thumb_link,-group_photo.type)
+groups<-select(groups,-organizer.photo.highres_link,-organizer.photo.photo_id,-organizer.photo.base_url,-organizer.photo.type,-organizer.photo.photo_link,-organizer.photo.thumb_link)
+groups<-mutate(groups,topic=toString(topics))
+groups<-select(groups,-topics)
+groups<-mutate(groups,topics=str_sub(topic,12,-1))
+write.csv(groups,"D:\\meetup\\tgroups.csv")
+```
+
+
+```{r}
+#read chicago and new york data
+chi_events<-read.csv("D:\\meetups\\chievents.csv")
+
+nyc_events <- read.csv("D:\\meetups\\nycevents.csv")
+```
+
+```{r}
+#processing data 
+#chi_ev_red<-select(chi_events,event_id,category_name,category_name2,category_id,createdtime,description,group_lat,group_lon,group_id,how_to_find_us,event_name,event_time,updated,utc_offset,venue_address_1,venue_address_2,venue_id,venue_lat,venue_lon,venue_name,yes_rsvp_count)
+
+chi_mapping<-select(chi_events,event_id,category_name,venue_name,venue_lat,venue_lon,yes_rsvp_count)
+
+head(chi_mapping)
+
+#check na value
+sum(is.na(chi_mapping))
+
+bin_cevents <- chi_mapping %>% group_by(venue_lon, venue_lat) %>%
+ summarise(hap_times = n(),part_size=sum(yes_rsvp_count),avg_part_size=sum(yes_rsvp_count)/n()) %>%
+ arrange(desc(part_size)) %>% ungroup()
+
+head(bin_cevents)
+
+bin_cate<- chi_mapping %>% group_by(category_name,venue_name,venue_lon,venue_lat)%>%summarise(hap_times=n(),part_size=sum(yes_rsvp_count),avg_part_size=sum(yes_rsvp_count)/n())%>%arrange(desc(part_size)) %>% ungroup()
+
+head(bin_cate)
+
+```
+
+```{r}
+nyc_mapping<-select(nyc_events,event_id,category_name,venue_name,venue_lat,venue_lon,yes_rsvp_count)
+
+sum(is.na(nyc_mapping))
+
+bin_nevents <- nyc_mapping %>% group_by(venue_lon, venue_lat) %>%
+ summarise(hap_times = n(),part_size=sum(yes_rsvp_count),avg_part_size=sum(yes_rsvp_count)/n()) %>%
+ arrange(desc(part_size)) %>% ungroup()
+
+head(bin_nevents)
+
+bin_ncate<- nyc_mapping %>% group_by(category_name,venue_name,venue_lon,venue_lat)%>%summarise(hap_times=n(),part_size=sum(yes_rsvp_count),avg_part_size=sum(yes_rsvp_count)/n())%>%arrange(desc(part_size)) %>% ungroup()
+
+head(bin_ncate)
+
+```
+
+```{r echo=FALSE}
+library(ggmap)
+library(googleway)
+#set_key("AIzaSyCYgKKt2fn7Crt-V6Hnc5aw5lSfy7XLQ-Y")
+register_google(key = "AIzaSyDDWg-8tWb4ZPClGrekSBdMjU5q0KNF3Ks")
+```
+
+## Graphs and Analysis
+
+```{r tidy=TRUE,message=FALSE,warning=FALSE}
+#whole chicago area 
+chimap = get_map(location = "chicago", maptype = "terrain", source = "google", zoom = 11)
+chimap = ggmap(chimap)
+
+chimap + 
+  geom_point(data = bin_cevents, aes(x = venue_lon, y = venue_lat,color = hap_times, size=avg_part_size),alpha=0.4)+
+  scale_colour_gradient(name = '# The number of events', low="pink", high="blue") +
+  scale_size(name = '# size of average participation each time', range = c(2,10))+labs(title="Where do Chicago people participate in-person events?")
+
+chimap + 
+  geom_point(data = bin_cate, aes(x = venue_lon, y = venue_lat,color = category_name, size=part_size),alpha=0.2)+
+  scale_size(name = '# size of total participation', range = c(2,9))+labs(title = "Size of total participation of events in different categories")
+```
+
+```{r tidy=TRUE,message=FALSE,warning=FALSE}
+#New York
+nymap = get_map(location = "new york", maptype = "terrain", source = "google", zoom = 12)
+nymap = ggmap(nymap)
+
+nymap + 
+  geom_point(data = bin_nevents, aes(x = venue_lon, y = venue_lat,color = hap_times, size=part_size),alpha=0.2)+
+  scale_colour_gradient(name = '# The number of events', low="orange", high="blue") +
+  scale_size(name = '# size of total participation', range = c(2,10))+labs(title="The number of people a place attracts to participate events there")
+
+nymap + 
+  geom_point(data = bin_ncate, aes(x = venue_lon, y = venue_lat,color = category_name, size=part_size),alpha=0.2)+
+  scale_size(name = '# size of participation', range = c(2,9))+labs(title = "Size of total participation of events in different categories")
+
+#nymap + geom_point(data = bin_ncate, aes(x = venue_lon, y = venue_lat,color = category_name, size=avg_part_size),alpha=0.2)+ scale_size(name = '# size of participation', range = c(2,9))+labs(title = "Size of average participation of events in different categories each time")
+```
+
+```{r tidy=TRUE,message=FALSE,warning=FALSE}
+#Downtown Chicago
+dt <- get_map(location = c(lon=-87.625177,lat=41.876858),zoom=14,maptype = "terrain")
+dt_map<-ggmap(dt)
+
+dt_map+ geom_jitter(data = chi_mapping, aes(x = venue_lon, y = venue_lat,color = category_name) ,alpha=0.5,size=3.0)
+
+dt_map+geom_point(data = bin_cate, aes(x = venue_lon, y = venue_lat,color = category_name, size=part_size),alpha=0.5)+
+  scale_size(name = '# count of different Events', range = c(2,10))
+```
+
+```{r tidy=TRUE,message=FALSE,warning=FALSE}
+#Wicker park
+wp<-get_map(location = c(lon=-87.679610,lat=41.909001),zoom=15,maptype = "terrain")
+wpmap=ggmap(wp)
+
+wpmap+geom_jitter(data = chi_mapping, aes(x = venue_lon, y = venue_lat,color = category_name) ,alpha=0.5,size=5.0)
+
+wpmap+geom_point(data = bin_cate, aes(x = venue_lon, y = venue_lat,color = category_name, size=part_size),alpha=0.4)+
+  scale_size(name = '# count of different Events', range = c(2,15))
+```
+
